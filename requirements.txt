@@ -1,0 +1,5 @@
+qtmodern
+PyQt5
+pyperclip
+pydantic
+wisepy2
