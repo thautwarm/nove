@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 from __future__ import annotations
 import sys
 import typing
@@ -59,6 +60,23 @@ class Document(pydantic.BaseModel):
     def item_id(self):
         return self.id
 
+class QueryProxy:
+    def __init__(self, doc: Document, attrs: Attrs, attr_lookup: dict):
+        self.doc = doc
+        self.attrs = attrs
+        self.attr_lookup = attr_lookup
+    def __getattr__(self, attr):
+        if attr == "名字":
+            return self.doc.name
+        elif attr == "文件路径":
+            return self.doc.path
+        if attr_id := self.attr_lookup.get(attr, None):
+            return self.doc.attrs[attr_id]
+        found = next((k for k,v in self.attrs.items() if v.name == attr), None)
+        if found:
+            attr_id = self.attr_lookup[attr] = self.attrs[found].id
+            return self.doc.attrs[attr_id]
+        return None
 
 Value = typing.Union[int, str, float]
 
@@ -90,7 +108,7 @@ class Project:
     def save(self, data: Data):
         json.dump(
             data.dict(),
-            open(self.datafile, "w", encoding="utf8"),
+            pathlib.Path(self.datafile).absolute().open('w', encoding='utf-8'),
             ensure_ascii=False,
         )
 
@@ -98,7 +116,7 @@ class Project:
         if os.path.exists(self.datafile):
             try:
                 data = json.load(
-                    open(self.datafile, mode="r", encoding="utf8")
+                    open(self.datafile, mode="r", encoding='utf-8')
                 )
             except json.JSONDecodeError:
                 return Data(docs={}, attrs={}, editor="notepad")
@@ -127,10 +145,9 @@ class Datum(typing.Generic[T]):
     def notify(self):
         for sub in self._subscribers:
             sub()
-
+    
     def __getattr__(self, item):
         return getattr(self.v, item, None)
-
 
 _cnt = 0
 
@@ -318,7 +335,7 @@ def proper_sized(a: QWidget):
 def colorize(a: QWidget, color: str):
     a.setStyleSheet(
         a.styleSheet()
-        + f" background-color: {color}; foreground-color: #000000;"
+        + f" background-color: {color};"
     )
 
 
@@ -675,6 +692,7 @@ class Main(QWidget):
         self.attrs.clear()
         self.documents.clear()
         self.context = {}
+        self.attr_lookup = {}
         for doc in data.docs.values():
             self.documents.add(Datum(doc))
 
@@ -683,6 +701,12 @@ class Main(QWidget):
 
     def query(self):
 
+        def wrap(f):
+            def apply(obj):
+                obj = QueryProxy(obj, self.data.attrs, self.attr_lookup)
+                return f(obj)
+            return apply
+    
         if filter_code := self.filter.register.text():
             F = eval(f"lambda _: {filter_code}")
         else:
@@ -693,17 +717,29 @@ class Main(QWidget):
         else:
             S = None
 
-        seq = map(Datum, self.data.docs.values())
-        if F:
-            seq = list(filter(F, seq))
-        else:
-            seq = list(seq)
+        seq = self.data.docs.values()
+        try:
+            if F:
+                seq = list(filter(wrap(F), seq))
+            else:
+                seq = list(seq)
+        except Exception as e:
+            seq = list(self.data.docs.values())
+            msg_box = QMessageBox()
+            msg_box.setText(f"过滤函数有错误: {e}")
+            msg_box.exec_()
+        
         if S:
-            seq.sort(key=S)
+            try:
+                seq.sort(key=wrap(S))
+            except Exception as e:
+                msg_box = QMessageBox()
+                msg_box.setText(f"排序函数有错误: {e}")
+                msg_box.exec_()
 
         self.documents.clear()
         for each in seq:
-            self.documents.add(each)
+            self.documents.add(Datum(each))
 
     def editor_setting(self):
         editor_name, ok = QInputDialog.getText(self, "编辑器设置", "属性名")
@@ -832,9 +868,15 @@ class Main(QWidget):
         popMenu = QMenu(self)
         popMenu.addAction("属性编辑", partial(self.edit_attr_for_doc, btn.datum))
         popMenu.addAction("引用", partial(self.ref_obj, btn.datum))
+        popMenu.addAction("在列表中删除", partial(self.documents.remove, btn))
         popMenu.addSeparator()
-        popMenu.addAction("删除", partial(self.documents.remove, btn))
+        popMenu.addAction("数据删除", partial(self.document_delete, btn))
         popMenu.exec_(self.cursor().pos())
+
+    def document_delete(self, btn):
+        self.documents.remove(btn)
+        del self.data.docs[btn.datum.v.id]
+        
 
     def document_item_left_click(self, btn: DListItem):
         doc: Document = typing.cast(Document, btn.datum.v)
@@ -862,7 +904,6 @@ def exception_hook(exctype, value, traceback):
 
 sys.excepthook = exception_hook
 
-
 def nove(proj_path: str):
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
     app = QApplication([])
@@ -882,5 +923,5 @@ def nove(proj_path: str):
     sys.exit(app.exec_())
 
 
-def cmd():
+if __name__ == '__main__':
     wisepy2.wise(nove)()
