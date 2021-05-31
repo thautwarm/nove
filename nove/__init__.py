@@ -2,6 +2,7 @@
 from __future__ import annotations
 import sys
 import typing
+import PyQt5
 from PyQt5.Qt import *
 from PyQt5 import QtCore
 from uuid import uuid4
@@ -772,23 +773,24 @@ class Main(QWidget):
 
         init_path = str(pathlib.Path(self.proj.datafile).absolute().parent)
         # noinspection PyTypeChecker
-        doc_path, _ = QFileDialog.getOpenFileName(
+        doc_paths, _ = QFileDialog.getOpenFileNames(
             self,
             "选择文档",
             init_path,
             "All Files (*)",
             options=options,
         )
-        if not doc_path:
+        if not doc_paths:
             return
-        doc = Document(
-            id=uuid_str(),
-            name=pathlib.Path(doc_path).with_suffix("").name,
-            attrs={},
-            path=doc_path,
-        )
-        self.documents.add(Datum(doc))
-        self.data.docs[doc.id] = doc
+        for doc_path in doc_paths:
+            doc = Document(
+                id=uuid_str(),
+                name=pathlib.Path(doc_path).with_suffix("").name,
+                attrs={},
+                path=doc_path,
+            )
+            self.documents.add(Datum(doc))
+            self.data.docs[doc.id] = doc
 
     def load_proj(self, datafile: str):
         self.proj.datafile = datafile
